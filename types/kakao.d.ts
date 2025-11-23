@@ -1,6 +1,6 @@
 /**
  * Kakao Map SDK 타입 선언
- * 
+ *
  * window.kakao 전역 객체에 대한 타입 정의
  */
 
@@ -89,7 +89,10 @@ interface KakaoMapsRoadviewClient {
 }
 
 interface KakaoMapsRoadview {
-  new (container: HTMLElement, options?: { panoId?: number; panoX?: number; panoY?: number }): KakaoMapsRoadview;
+  new (
+    container: HTMLElement,
+    options?: { panoId?: number; panoX?: number; panoY?: number }
+  ): KakaoMapsRoadview;
   setPanoId(panoId: number, position: KakaoMapsLatLng): void;
   relayout(): void;
 }
@@ -119,4 +122,3 @@ declare global {
 }
 
 export {};
-
