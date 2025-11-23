@@ -1,6 +1,6 @@
 /**
  * 카테고리 선택 컴포넌트
- * 
+ *
  * 공원/미술관/도서관/문화센터 등 카테고리를 선택할 수 있는 탭 형태 UI
  * 나중에 새로운 카테고리를 추가하려면 CATEGORY_LABELS에만 추가하면 됨
  */
@@ -22,15 +22,16 @@ export default function CategorySelector({
   const availableCategories: PlaceCategory[] = ["park"]; // ["park", "museum", "library", "cultural_center"]
 
   return (
-    <div style={styles.container}>
+    <div className="flex gap-2 p-4 bg-gray-100 rounded-lg flex-wrap">
       {availableCategories.map((category) => (
         <button
           key={category}
           onClick={() => onChange(category)}
-          style={{
-            ...styles.button,
-            ...(value === category ? styles.buttonActive : {}),
-          }}
+          className={`px-5 py-2.5 border rounded-md cursor-pointer text-sm font-medium transition-all duration-200 ${
+            value === category
+              ? "bg-blue-500 text-white border-blue-500"
+              : "bg-white border-gray-300 hover:border-gray-400"
+          }`}
         >
           {CATEGORY_LABELS[category]}
         </button>
@@ -40,34 +41,3 @@ export default function CategorySelector({
     </div>
   );
 }
-
-const styles: {
-  container: React.CSSProperties;
-  button: React.CSSProperties;
-  buttonActive: React.CSSProperties;
-} = {
-  container: {
-    display: "flex",
-    gap: "8px",
-    padding: "16px",
-    backgroundColor: "#f5f5f5",
-    borderRadius: "8px",
-    flexWrap: "wrap",
-  },
-  button: {
-    padding: "10px 20px",
-    border: "1px solid #ddd",
-    borderRadius: "6px",
-    backgroundColor: "#fff",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: "500",
-    transition: "all 0.2s",
-  },
-  buttonActive: {
-    backgroundColor: "#3182f6",
-    color: "#fff",
-    borderColor: "#3182f6",
-  },
-};
-

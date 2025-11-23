@@ -31,10 +31,14 @@ nearpark 프로젝트의 공통 개발 철학과 기술 규칙을 정의한다.
 
 3. 스타일
 
-   - 현재는 inline style 기반 레이아웃을 사용하며,
-     큰 리팩토링 전까지는 기존 스타일 구조를 존중한다.
-   - UI를 Tailwind로 옮기기로 결정할 경우,
-     먼저 이 파일과 `ui_places` 스킬의 규칙을 업데이트한 뒤 작업한다.
+   - **Tailwind CSS를 기본 스타일링 방법으로 사용한다.**
+   - 기존 inline style이 있더라도, 새로 추가하는 UI는 Tailwind CSS 클래스를 사용한다.
+   - 기존 inline style을 Tailwind로 마이그레이션할 때는 점진적으로 진행하며,
+     `ui_places` 스킬의 규칙을 참고한다.
+   - Tailwind 설정 파일:
+     - `tailwind.config.js`: Tailwind 설정
+     - `postcss.config.js`: PostCSS 설정
+     - `app/globals.css`: Tailwind 디렉티브 포함
 
 4. 데이터 & API
 

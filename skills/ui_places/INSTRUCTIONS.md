@@ -10,7 +10,8 @@ nearpark의 화면 UI/레이아웃을 설계하고 구현한다.
 ## SCOPE
 
 - 페이지/컴포넌트 구조 설계
-- inline style 또는 (미래에) Tailwind 기반 스타일링
+- **Tailwind CSS 기반 스타일링** (기본 방법)
+- 기존 inline style이 있는 컴포넌트는 점진적으로 Tailwind로 마이그레이션
 - Place 리스트/디테일 UI
 
 ## INPUT FORMAT (예시)
@@ -36,6 +37,8 @@ nearpark의 화면 UI/레이아웃을 설계하고 구현한다.
 ## CONSTRAINTS
 
 - TypeScript + React 함수형 컴포넌트를 사용한다.
+- **스타일링은 Tailwind CSS 클래스를 사용한다.**
+- 기존 inline style이 있는 컴포넌트를 수정할 때는 점진적으로 Tailwind로 전환한다.
 - 기존 컴포넌트 구조(Props, 타입)는 가능한 한 유지한다.
 - 데이터 페칭/카카오 API 호출을 새로 만들지 말고,
   필요하면 `kakao_map` 또는 서비스 레이어 쪽으로 위임한다.

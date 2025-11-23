@@ -199,120 +199,34 @@ export default function Roadview({ kakaoLoaded }: RoadviewProps) {
   }
 
   return (
-    <div style={styles.roadviewOverlay}>
-      <div style={styles.roadviewContainer}>
-        <div style={styles.roadviewHeader}>
-          <h3 style={styles.roadviewTitle}>로드뷰</h3>
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-[1000] flex items-center justify-center p-5">
+      <div className="w-full max-w-[1200px] h-[90vh] bg-white rounded-xl overflow-hidden shadow-2xl flex flex-col">
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-white">
+          <h3 className="m-0 text-lg font-semibold text-gray-800">로드뷰</h3>
           <button
             onClick={closeRoadview}
-            style={styles.roadviewCloseButton}
+            className="w-8 h-8 border-none bg-transparent cursor-pointer text-xl text-gray-600 flex items-center justify-center rounded transition-colors duration-200 hover:bg-gray-100"
             aria-label="로드뷰 닫기"
           >
             ✕
           </button>
         </div>
         {roadviewLoading && (
-          <div style={styles.roadviewLoading}>
+          <div className="flex-1 flex flex-col items-center justify-center bg-gray-100 text-gray-600 p-10">
             <p>로드뷰를 불러오는 중...</p>
-            <p style={styles.roadviewLoadingHint}>
+            <p className="mt-2.5 text-sm text-gray-400">
               주변 로드뷰를 찾고 있습니다.
             </p>
           </div>
         )}
         <div
           ref={roadviewContainerRef}
-          style={{
-            ...styles.roadview,
-            display: roadviewLoading ? "none" : "block",
-          }}
+          className={`flex-1 w-full min-h-0 ${
+            roadviewLoading ? "hidden" : "block"
+          }`}
           id="roadview"
         />
       </div>
     </div>
   );
 }
-
-const styles: {
-  roadviewOverlay: React.CSSProperties;
-  roadviewContainer: React.CSSProperties;
-  roadviewHeader: React.CSSProperties;
-  roadviewTitle: React.CSSProperties;
-  roadviewCloseButton: React.CSSProperties;
-  roadview: React.CSSProperties;
-  roadviewLoading: React.CSSProperties;
-  roadviewLoadingHint: React.CSSProperties;
-} = {
-  roadviewOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    zIndex: 1000,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "20px",
-  },
-  roadviewContainer: {
-    width: "100%",
-    maxWidth: "1200px",
-    height: "90vh",
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    overflow: "hidden",
-    boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
-    display: "flex",
-    flexDirection: "column",
-  },
-  roadviewHeader: {
-    padding: "16px 20px",
-    borderBottom: "1px solid #e5e5e5",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#fff",
-  },
-  roadviewTitle: {
-    margin: 0,
-    fontSize: "18px",
-    fontWeight: "600",
-    color: "#333",
-  },
-  roadviewCloseButton: {
-    width: "32px",
-    height: "32px",
-    border: "none",
-    backgroundColor: "transparent",
-    cursor: "pointer",
-    fontSize: "20px",
-    color: "#666",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: "4px",
-    transition: "background-color 0.2s",
-  },
-  roadview: {
-    flex: 1,
-    width: "100%",
-    minHeight: 0,
-  },
-  roadviewLoading: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f5f5f5",
-    color: "#666",
-    padding: "40px",
-  },
-  roadviewLoadingHint: {
-    marginTop: "10px",
-    fontSize: "14px",
-    color: "#999",
-  },
-};
-

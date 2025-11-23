@@ -12,7 +12,7 @@
  * 4. 현재 위치 마커 표시
  * 5. 카테고리 변경 시 주변 장소 검색 및 마커 표시
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import useKakaoLoader from "../../hooks/useKakaoLoader";
 import { searchPlaces, calculateDistance } from "../../services/kakao";
 import type { Place, PlaceCategory } from "../../types/place";
@@ -22,6 +22,7 @@ import Roadview from "../Roadview";
 interface MapClientProps {
   category: PlaceCategory;
   onPlacesChange: (places: Place[]) => void;
+  selectedPlaceId?: string | null; // 선택된 장소 ID
 }
 
 interface UserLocation {
@@ -33,11 +34,14 @@ interface UserLocation {
 export default function MapClient({
   category,
   onPlacesChange,
+  selectedPlaceId,
 }: MapClientProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null); // kakao.maps.Map
   const markersRef = useRef<any[]>([]); // kakao.maps.Marker[]
+  const markersMapRef = useRef<Map<string, any>>(new Map()); // place.id -> marker Map
   const currentMarkerRef = useRef<any>(null); // kakao.maps.Marker
+  const placesCacheRef = useRef<Map<string, Place[]>>(new Map()); // category -> places 캐시
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -258,12 +262,24 @@ export default function MapClient({
     return () => clearTimeout(timeout);
   }, [kakaoLoaded]);
 
+  // Cursor 브라우저용 임시 위치 (권한 문제 우회)
+  const FALLBACK_LOCATION: UserLocation = {
+    lat: 37.5881728,
+    lng: 127.0775808,
+    accuracy: 10,
+  };
+
   // 사용자 위치 획득 (정확도 개선) - useEffect로 지속 모니터링
   useEffect(() => {
     if (!kakaoLoaded) return;
 
+    // Cursor 브라우저에서 위치 권한이 없는 경우를 대비해 fallback 위치 사용
     if (!navigator.geolocation) {
-      setError("브라우저가 위치 정보를 지원하지 않습니다.");
+      console.log(
+        "📍 Geolocation API를 사용할 수 없습니다. 임시 위치 사용:",
+        FALLBACK_LOCATION
+      );
+      setUserLocation(FALLBACK_LOCATION);
       setLoading(false);
       return;
     }
@@ -408,9 +424,13 @@ export default function MapClient({
           errorMessage = `위치 정보 오류: ${err.message}`;
       }
 
-      // 권한 거부인 경우에만 즉시 에러 표시
+      // 권한 거부인 경우 fallback 위치 사용
       if (err.code === err.PERMISSION_DENIED) {
-        setError(errorMessage);
+        console.log(
+          "📍 위치 정보 권한이 거부되었습니다. 임시 위치 사용:",
+          FALLBACK_LOCATION
+        );
+        setUserLocation(FALLBACK_LOCATION);
         setLoading(false);
 
         if (watchId !== null) {
@@ -432,11 +452,12 @@ export default function MapClient({
       }
 
       if (bestAccuracy === Infinity) {
-        setError(
-          "위치 정보를 가져오는 데 시간이 너무 오래 걸립니다.\n" +
-            "GPS 신호가 약한 환경일 수 있습니다.\n" +
-            "실외에서 다시 시도해보세요."
+        // 위치를 가져오지 못한 경우 fallback 위치 사용
+        console.log(
+          "📍 위치 정보를 가져오지 못했습니다. 임시 위치 사용:",
+          FALLBACK_LOCATION
         );
+        setUserLocation(FALLBACK_LOCATION);
         setLoading(false);
       } else if (bestAccuracy > targetAccuracy) {
         console.warn(
@@ -522,6 +543,106 @@ export default function MapClient({
     infoWindow.open(map, currentMarker);
   }, [kakaoLoaded, userLocation]);
 
+  // 마커 생성 헬퍼 함수
+  const createMarkersFromPlaces = (
+    placesWithDistance: Place[],
+    userLocation: UserLocation,
+    kakao: any
+  ) => {
+    // 기존 마커 제거
+    markersRef.current.forEach((marker) => {
+      marker.setMap(null);
+    });
+    markersRef.current = [];
+    markersMapRef.current.clear();
+
+    // 마커 생성
+    const bounds = new kakao.maps.LatLngBounds();
+    bounds.extend(new kakao.maps.LatLng(userLocation.lat, userLocation.lng));
+
+    placesWithDistance.forEach((place) => {
+      const position = new kakao.maps.LatLng(place.lat, place.lng);
+      bounds.extend(position);
+
+      const marker = new kakao.maps.Marker({
+        position: position,
+        map: mapRef.current,
+      });
+
+      // 호버 시 간단한 이름만 표시
+      const hoverInfoWindow = new kakao.maps.InfoWindow({
+        content: `<div style="padding:5px;font-weight:bold;">${place.name}</div>`,
+      });
+
+      // 클릭 시 상세 정보 표시
+      const detailInfoWindow = new kakao.maps.InfoWindow({
+        content: createPlaceDetailContent(place),
+        removable: true, // 닫기 버튼 표시
+      });
+
+      // 마커에 상세 정보창 참조 저장
+      (marker as any).detailInfoWindow = detailInfoWindow;
+      (marker as any).detailInfoOpen = false;
+
+      // 마우스오버 시 간단한 정보 표시
+      kakao.maps.event.addListener(marker, "mouseover", () => {
+        // 클릭된 상세 정보창이 열려있지 않을 때만 호버 정보 표시
+        if (!(marker as any).detailInfoOpen) {
+          hoverInfoWindow.open(mapRef.current, marker);
+        }
+      });
+
+      kakao.maps.event.addListener(marker, "mouseout", () => {
+        hoverInfoWindow.close();
+      });
+
+      // 클릭 시 상세 정보 표시
+      kakao.maps.event.addListener(marker, "click", () => {
+        // 호버 정보창 닫기
+        hoverInfoWindow.close();
+
+        // 기존에 열려있는 상세 정보창 닫기
+        markersRef.current.forEach((m) => {
+          const existingInfo = (m as any).detailInfoWindow;
+          const isOpen = (m as any).detailInfoOpen;
+          if (existingInfo && isOpen) {
+            existingInfo.close();
+            (m as any).detailInfoOpen = false;
+          }
+        });
+
+        // 현재 마커의 상세 정보 표시
+        detailInfoWindow.open(mapRef.current, marker);
+        (marker as any).detailInfoOpen = true;
+
+        // 지도 클릭 시 상세 정보창 닫기
+        const closeDetailOnMapClick = () => {
+          detailInfoWindow.close();
+          (marker as any).detailInfoOpen = false;
+          kakao.maps.event.removeListener(
+            mapRef.current,
+            "click",
+            closeDetailOnMapClick
+          );
+        };
+        kakao.maps.event.addListener(
+          mapRef.current,
+          "click",
+          closeDetailOnMapClick
+        );
+      });
+
+      markersRef.current.push(marker);
+      // place.id로 마커를 찾을 수 있도록 Map에 저장
+      markersMapRef.current.set(place.id, marker);
+    });
+
+    // 지도 범위 조정 (모든 마커가 보이도록)
+    if (placesWithDistance.length > 0) {
+      mapRef.current.setBounds(bounds);
+    }
+  };
+
   // 카테고리 변경 시 장소 검색 및 마커 표시
   useEffect(() => {
     if (!mapRef.current || !userLocation || !category) return;
@@ -530,15 +651,38 @@ export default function MapClient({
 
     const { kakao } = window;
 
-    // 기존 마커 제거
-    markersRef.current.forEach((marker) => {
-      marker.setMap(null);
-    });
-    markersRef.current = [];
+    // 캐시 키 생성 (카테고리 + 사용자 위치 기반)
+    const cacheKey = `${category}_${userLocation.lat.toFixed(
+      4
+    )}_${userLocation.lng.toFixed(4)}`;
+
+    // 캐시된 결과가 있으면 사용
+    const cachedPlaces = placesCacheRef.current.get(cacheKey);
+    if (cachedPlaces) {
+      // 캐시된 결과로 마커 생성
+      const placesWithDistance: Place[] = cachedPlaces.map((place) => ({
+        ...place,
+        distance: calculateDistance(
+          userLocation.lat,
+          userLocation.lng,
+          place.lat,
+          place.lng
+        ),
+      }));
+
+      // 부모 컴포넌트에 전달
+      onPlacesChange(placesWithDistance);
+
+      // 마커 생성 로직 재사용
+      createMarkersFromPlaces(placesWithDistance, userLocation, kakao);
+      return;
+    }
 
     // 장소 검색
     searchPlaces(category, userLocation.lat, userLocation.lng)
       .then(async (places) => {
+        // 검색 결과 캐시에 저장
+        placesCacheRef.current.set(cacheKey, places);
         // 거리 계산 및 추가
         const placesWithDistance: Place[] = places.map((place) => ({
           ...place,
@@ -553,91 +697,8 @@ export default function MapClient({
         // 부모 컴포넌트에 전달
         onPlacesChange(placesWithDistance);
 
-        // 마커 생성
-        const bounds = new kakao.maps.LatLngBounds();
-        bounds.extend(
-          new kakao.maps.LatLng(userLocation.lat, userLocation.lng)
-        );
-
-        placesWithDistance.forEach((place) => {
-          const position = new kakao.maps.LatLng(place.lat, place.lng);
-          bounds.extend(position);
-
-          const marker = new kakao.maps.Marker({
-            position: position,
-            map: mapRef.current,
-          });
-
-          // 호버 시 간단한 이름만 표시
-          const hoverInfoWindow = new kakao.maps.InfoWindow({
-            content: `<div style="padding:5px;font-weight:bold;">${place.name}</div>`,
-          });
-
-          // 클릭 시 상세 정보 표시
-          const detailInfoWindow = new kakao.maps.InfoWindow({
-            content: createPlaceDetailContent(place),
-            removable: true, // 닫기 버튼 표시
-          });
-
-          // 마커에 상세 정보창 참조 저장
-          (marker as any).detailInfoWindow = detailInfoWindow;
-          (marker as any).detailInfoOpen = false;
-
-          // 마우스오버 시 간단한 정보 표시
-          kakao.maps.event.addListener(marker, "mouseover", () => {
-            // 클릭된 상세 정보창이 열려있지 않을 때만 호버 정보 표시
-            if (!(marker as any).detailInfoOpen) {
-              hoverInfoWindow.open(mapRef.current, marker);
-            }
-          });
-
-          kakao.maps.event.addListener(marker, "mouseout", () => {
-            hoverInfoWindow.close();
-          });
-
-          // 클릭 시 상세 정보 표시
-          kakao.maps.event.addListener(marker, "click", () => {
-            // 호버 정보창 닫기
-            hoverInfoWindow.close();
-
-            // 기존에 열려있는 상세 정보창 닫기
-            markersRef.current.forEach((m) => {
-              const existingInfo = (m as any).detailInfoWindow;
-              const isOpen = (m as any).detailInfoOpen;
-              if (existingInfo && isOpen) {
-                existingInfo.close();
-                (m as any).detailInfoOpen = false;
-              }
-            });
-
-            // 현재 마커의 상세 정보 표시
-            detailInfoWindow.open(mapRef.current, marker);
-            (marker as any).detailInfoOpen = true;
-
-            // 지도 클릭 시 상세 정보창 닫기
-            const closeDetailOnMapClick = () => {
-              detailInfoWindow.close();
-              (marker as any).detailInfoOpen = false;
-              kakao.maps.event.removeListener(
-                mapRef.current,
-                "click",
-                closeDetailOnMapClick
-              );
-            };
-            kakao.maps.event.addListener(
-              mapRef.current,
-              "click",
-              closeDetailOnMapClick
-            );
-          });
-
-          markersRef.current.push(marker);
-        });
-
-        // 지도 범위 조정 (모든 마커가 보이도록)
-        if (placesWithDistance.length > 0) {
-          mapRef.current.setBounds(bounds);
-        }
+        // 마커 생성 로직 재사용
+        createMarkersFromPlaces(placesWithDistance, userLocation, kakao);
       })
       .catch((err) => {
         console.error("장소 검색 실패:", err);
@@ -645,25 +706,123 @@ export default function MapClient({
       });
   }, [category, userLocation, onPlacesChange]);
 
+  // 선택된 장소로 지도 이동 및 팝업 열기
+  useEffect(() => {
+    if (!selectedPlaceId || !mapRef.current || !userLocation) return;
+    if (typeof window === "undefined" || !window.kakao || !window.kakao.maps)
+      return;
+
+    const marker = markersMapRef.current.get(selectedPlaceId);
+    if (!marker) return;
+
+    const { kakao } = window;
+    const placePosition = marker.getPosition();
+
+    // 팝업 열기 함수
+    const openPlacePopup = () => {
+      // 기존에 열려있는 상세 정보창 닫기
+      markersRef.current.forEach((m) => {
+        const existingInfo = (m as any).detailInfoWindow;
+        const isOpen = (m as any).detailInfoOpen;
+        if (existingInfo && isOpen) {
+          existingInfo.close();
+          (m as any).detailInfoOpen = false;
+        }
+      });
+
+      // 선택된 마커의 상세 정보 표시
+      const detailInfoWindow = (marker as any).detailInfoWindow;
+      if (detailInfoWindow) {
+        detailInfoWindow.open(mapRef.current, marker);
+        (marker as any).detailInfoOpen = true;
+
+        // 지도 클릭 시 상세 정보창 닫기
+        const closeDetailOnMapClick = () => {
+          detailInfoWindow.close();
+          (marker as any).detailInfoOpen = false;
+          kakao.maps.event.removeListener(
+            mapRef.current,
+            "click",
+            closeDetailOnMapClick
+          );
+        };
+        kakao.maps.event.addListener(
+          mapRef.current,
+          "click",
+          closeDetailOnMapClick
+        );
+      }
+    };
+
+    // 이전 idle 리스너 참조 저장
+    let idleListener: any = null;
+    let isActive = true; // 현재 useEffect가 활성화되어 있는지 확인
+    let popupOpened = false; // 팝업이 이미 열렸는지 확인
+
+    // panTo는 항상 즉시 호출 (지도가 이동 중이거나 줌 중이어도 호출)
+    mapRef.current.panTo(placePosition);
+
+    // 이동이 완료된 후 팝업 열기
+    const handleIdle = () => {
+      // useEffect가 비활성화되었거나 다른 장소가 선택되었으면 실행하지 않음
+      if (!isActive || popupOpened) return;
+
+      // 실제로 panTo가 호출된 후에 발생한 idle인지 확인
+      const currentCenter = mapRef.current.getCenter();
+      const distance = Math.sqrt(
+        Math.pow(currentCenter.getLat() - placePosition.getLat(), 2) +
+          Math.pow(currentCenter.getLng() - placePosition.getLng(), 2)
+      );
+
+      // 중심점이 목표 위치와 충분히 가까우면 이동 완료로 간주
+      if (distance < 0.0001) {
+        openPlacePopup();
+        popupOpened = true;
+        // idle 이벤트 리스너 제거 (한 번만 실행)
+        if (idleListener) {
+          kakao.maps.event.removeListener(mapRef.current, "idle", idleListener);
+          idleListener = null;
+        }
+      }
+    };
+
+    idleListener = handleIdle;
+
+    // idle 이벤트 리스너 추가 (panTo 호출 후 이동이 완료될 때까지 대기)
+    kakao.maps.event.addListener(mapRef.current, "idle", handleIdle);
+
+    // cleanup: useEffect가 언마운트되거나 selectedPlaceId가 변경될 때
+    return () => {
+      isActive = false;
+      popupOpened = false;
+      // 이전 idle 리스너 제거
+      if (idleListener) {
+        kakao.maps.event.removeListener(mapRef.current, "idle", idleListener);
+      }
+    };
+  }, [selectedPlaceId, userLocation]);
+
   // 조건부 렌더링 (모든 Hooks 호출 이후)
   if (sdkError) {
     return (
-      <div style={styles.error}>
-        <div style={styles.errorContent}>
-          <h3 style={styles.errorTitle}>⚠️ 지도 로딩 실패</h3>
-          <pre style={styles.errorMessage}>{sdkError}</pre>
-          <div style={styles.errorHelp}>
+      <div className="w-full h-[500px] flex items-center justify-center bg-red-50 text-red-700 p-5 overflow-y-auto">
+        <div className="max-w-[600px] w-full">
+          <h3 className="m-0 mb-4 text-xl font-semibold">⚠️ 지도 로딩 실패</h3>
+          <pre className="m-0 mb-5 p-3 bg-white rounded text-sm leading-relaxed whitespace-pre-wrap font-mono">
+            {sdkError}
+          </pre>
+          <div className="mt-5 p-4 bg-white rounded text-sm leading-relaxed">
             <p>
               <strong>해결 방법:</strong>
             </p>
-            <ol style={styles.errorList}>
+            <ol className="my-3 ml-0 pl-5 list-decimal">
               <li>
                 카카오 개발자 콘솔 확인:{" "}
                 <a
                   href="https://developers.kakao.com/console/app"
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={styles.errorLink}
+                  className="text-blue-600 underline"
                 >
                   https://developers.kakao.com/console/app
                 </a>
@@ -684,9 +843,9 @@ export default function MapClient({
 
   if (!kakaoLoaded) {
     return (
-      <div style={styles.loading}>
+      <div className="w-full h-[500px] flex flex-col items-center justify-center bg-gray-100 text-gray-600 p-5">
         <p>지도 로딩 중...</p>
-        <p style={styles.loadingHint}>
+        <p className="mt-2.5 text-sm text-gray-400">
           카카오맵 SDK를 불러오는 중입니다. 잠시만 기다려주세요.
         </p>
       </div>
@@ -695,9 +854,9 @@ export default function MapClient({
 
   if (loading) {
     return (
-      <div style={styles.loading}>
+      <div className="w-full h-[500px] flex flex-col items-center justify-center bg-gray-100 text-gray-600 p-5">
         <p>위치 정보를 가져오는 중...</p>
-        <p style={styles.loadingHint}>
+        <p className="mt-2.5 text-sm text-gray-400">
           GPS를 사용하여 정확한 위치를 찾는 중입니다.
           <br />
           실외에서 더 정확한 위치 정보를 얻을 수 있습니다.
@@ -708,10 +867,12 @@ export default function MapClient({
 
   if (error) {
     return (
-      <div style={styles.error}>
-        <div style={styles.errorContent}>
-          <h3 style={styles.errorTitle}>⚠️ 오류 발생</h3>
-          <p style={styles.errorMessage}>{error}</p>
+      <div className="w-full h-[500px] flex items-center justify-center bg-red-50 text-red-700 p-5 overflow-y-auto">
+        <div className="max-w-[600px] w-full">
+          <h3 className="m-0 mb-4 text-xl font-semibold">⚠️ 오류 발생</h3>
+          <p className="m-0 mb-5 p-3 bg-white rounded text-sm leading-relaxed whitespace-pre-wrap font-mono">
+            {error}
+          </p>
         </div>
       </div>
     );
@@ -719,89 +880,12 @@ export default function MapClient({
 
   return (
     <>
-      <div ref={mapContainerRef} style={styles.map} id="map" />
+      <div
+        ref={mapContainerRef}
+        className="w-full h-full min-h-[500px]"
+        id="map"
+      />
       <Roadview kakaoLoaded={kakaoLoaded} />
     </>
   );
 }
-
-const styles: {
-  map: React.CSSProperties;
-  loading: React.CSSProperties;
-  loadingHint: React.CSSProperties;
-  error: React.CSSProperties;
-  errorContent: React.CSSProperties;
-  errorTitle: React.CSSProperties;
-  errorMessage: React.CSSProperties;
-  errorHelp: React.CSSProperties;
-  errorList: React.CSSProperties;
-  errorLink: React.CSSProperties;
-} = {
-  map: {
-    width: "100%",
-    height: "100%",
-    minHeight: "500px",
-  },
-  loading: {
-    width: "100%",
-    height: "500px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f5f5f5",
-    color: "#666",
-    padding: "20px",
-  },
-  loadingHint: {
-    marginTop: "10px",
-    fontSize: "14px",
-    color: "#999",
-  },
-  error: {
-    width: "100%",
-    height: "500px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fee",
-    color: "#c33",
-    padding: "20px",
-    overflowY: "auto",
-  },
-  errorContent: {
-    maxWidth: "600px",
-    width: "100%",
-  },
-  errorTitle: {
-    margin: "0 0 16px 0",
-    fontSize: "20px",
-    fontWeight: "600",
-  },
-  errorMessage: {
-    margin: "0 0 20px 0",
-    padding: "12px",
-    backgroundColor: "#fff",
-    borderRadius: "4px",
-    fontSize: "14px",
-    lineHeight: "1.6",
-    whiteSpace: "pre-wrap",
-    fontFamily: "monospace",
-  },
-  errorHelp: {
-    marginTop: "20px",
-    padding: "16px",
-    backgroundColor: "#fff",
-    borderRadius: "4px",
-    fontSize: "14px",
-    lineHeight: "1.6",
-  },
-  errorList: {
-    margin: "12px 0 0 0",
-    paddingLeft: "20px",
-  },
-  errorLink: {
-    color: "#3182f6",
-    textDecoration: "underline",
-  },
-};
