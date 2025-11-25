@@ -14,7 +14,8 @@
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import useKakaoLoader from "../../hooks/useKakaoLoader";
-import { searchPlaces, calculateDistance } from "../../services/kakao";
+import { searchPlaces } from "../../services/kakao";
+import { calculateDistance, formatDistance } from "../../lib/utils/distance";
 import type { Place, PlaceCategory } from "../../types/place";
 import { CATEGORY_LABELS } from "../../types/place";
 import Roadview from "../Roadview";
@@ -93,11 +94,7 @@ export default function MapClient({
 
   // 카카오맵 스타일의 상세 정보 HTML 생성 함수
   const createPlaceDetailContent = (place: Place): string => {
-    const distanceText = place.distance
-      ? place.distance < 1000
-        ? `${Math.round(place.distance)}m`
-        : `${(place.distance / 1000).toFixed(1)}km`
-      : "";
+    const distanceText = place.distance ? formatDistance(place.distance) : "";
 
     // 카카오맵 URL 생성
     const kakaoMapUrl = place.url || `https://place.map.kakao.com/${place.id}`;
