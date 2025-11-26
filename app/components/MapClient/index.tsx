@@ -336,10 +336,6 @@ export default function MapClient({
 
     // Cursor 브라우저에서 위치 권한이 없는 경우를 대비해 fallback 위치 사용
     if (!navigator.geolocation) {
-      console.log(
-        "📍 Geolocation API를 사용할 수 없습니다. 임시 위치 사용:",
-        FALLBACK_LOCATION
-      );
       setUserLocation(FALLBACK_LOCATION);
       setLoading(false);
       return;
@@ -367,27 +363,6 @@ export default function MapClient({
       longitude: number,
       accuracy: number
     ) => {
-      const accuracyStatus =
-        accuracy <= targetAccuracy
-          ? "✅ 목표 달성"
-          : accuracy <= 50
-          ? "🟡 양호"
-          : accuracy <= 100
-          ? "🟠 보통"
-          : "🔴 낮음";
-
-      console.log(`📍 위치 정보 업데이트 (시도 ${attempts}/${maxAttempts}):`, {
-        lat: latitude,
-        lng: longitude,
-        accuracy: `${Math.round(accuracy)}m`,
-        status: accuracyStatus,
-        target: `${targetAccuracy}m`,
-        improvement:
-          bestAccuracy === Infinity
-            ? "첫 위치"
-            : `${Math.round(bestAccuracy - accuracy)}m 개선`,
-      });
-
       // 더 정확한 위치 정보인 경우에만 업데이트
       if (accuracy < bestAccuracy) {
         bestAccuracy = accuracy;
@@ -414,11 +389,6 @@ export default function MapClient({
       } else {
         // 정확도가 개선되지 않음
         noImprovementCount++;
-        console.log(
-          `⚠️ 정확도 개선 없음 (${noImprovementCount}회 연속, 현재: ${Math.round(
-            accuracy
-          )}m, 최고: ${Math.round(bestAccuracy)}m)`
-        );
       }
 
       lastUpdateTime = Date.now();
@@ -447,15 +417,6 @@ export default function MapClient({
         }
 
         const finalAccuracy = Math.round(bestAccuracy);
-        console.log(
-          `✅ 위치 모니터링 종료 (최종 정확도: ${finalAccuracy}m, 총 시도: ${attempts})`
-        );
-
-        if (finalAccuracy > targetAccuracy) {
-          console.warn(
-            `⚠️ 목표 정확도(${targetAccuracy}m)에 도달하지 못했습니다. 현재 정확도: ${finalAccuracy}m`
-          );
-        }
       }
     };
 
@@ -476,9 +437,6 @@ export default function MapClient({
             "GPS 또는 네트워크 위치 서비스를 확인해주세요.";
           break;
         case err.TIMEOUT:
-          console.warn(
-            `⚠️ 위치 정보 타임아웃 (시도 ${attempts}/${maxAttempts})`
-          );
           // 타임아웃은 계속 시도 (watchPosition이 자동으로 재시도)
           return;
         default:
@@ -487,10 +445,6 @@ export default function MapClient({
 
       // 권한 거부인 경우 fallback 위치 사용
       if (err.code === err.PERMISSION_DENIED) {
-        console.log(
-          "📍 위치 정보 권한이 거부되었습니다. 임시 위치 사용:",
-          FALLBACK_LOCATION
-        );
         setUserLocation(FALLBACK_LOCATION);
         setLoading(false);
 
@@ -514,24 +468,13 @@ export default function MapClient({
 
       if (bestAccuracy === Infinity) {
         // 위치를 가져오지 못한 경우 fallback 위치 사용
-        console.log(
-          "📍 위치 정보를 가져오지 못했습니다. 임시 위치 사용:",
-          FALLBACK_LOCATION
-        );
         setUserLocation(FALLBACK_LOCATION);
         setLoading(false);
-      } else if (bestAccuracy > targetAccuracy) {
-        console.warn(
-          `⚠️ 시간 초과. 현재 정확도: ${Math.round(
-            bestAccuracy
-          )}m (목표: ${targetAccuracy}m)`
-        );
       }
     }, maxWaitTime);
 
     // watchPosition을 사용하여 지속적으로 위치 업데이트
     // 정확도가 개선되면 자동으로 업데이트됨
-    console.log("🔄 위치 정보 모니터링 시작 (목표 정확도: 10m)");
     watchId = navigator.geolocation.watchPosition(
       handleSuccess,
       handleError,
@@ -542,7 +485,6 @@ export default function MapClient({
     return () => {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
-        console.log("🛑 위치 정보 모니터링 중지");
       }
       if (timeoutId) {
         clearTimeout(timeoutId);

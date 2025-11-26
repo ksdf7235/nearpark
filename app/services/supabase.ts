@@ -240,16 +240,12 @@ export async function findMatchingUrbanPark(
             other: bestMatch.park.other_facilities,
           },
         };
-      } else {
-        console.log("❌ 주소 기반 매칭 실패 (유사도 50% 미만)");
       }
     }
   }
 
   // 2단계: 좌표 기반 매칭 시도
   if (kakaoPlace.lat && kakaoPlace.lng) {
-    console.log("📍 2단계: 좌표 기반 매칭 시도");
-    
     const radius = 500; // 500m 반경 (주소 매칭 실패 시 더 넓게)
     const { data: allParks, error } = await supabase
       .from("urban_parks")
@@ -258,12 +254,10 @@ export async function findMatchingUrbanPark(
       .not("lng", "is", null);
 
     if (error) {
-      console.error("❌ urban_parks 조회 오류:", error);
       return null;
     }
 
     if (!allParks || allParks.length === 0) {
-      console.log("❌ urban_parks 데이터 없음");
       return null;
     }
 
@@ -290,12 +284,6 @@ export async function findMatchingUrbanPark(
 
     if (locationMatches.length > 0) {
       const bestMatch = locationMatches[0];
-      console.log(`✅ 좌표 기반 매칭 성공!`, {
-        parkName: bestMatch.park.name,
-        distance: Math.round(bestMatch.distance),
-        kakaoLocation: { lat: kakaoPlace.lat, lng: kakaoPlace.lng },
-        parkLocation: { lat: bestMatch.park.lat, lng: bestMatch.park.lng },
-      });
 
       return {
         park: bestMatch.park,
@@ -307,12 +295,9 @@ export async function findMatchingUrbanPark(
           other: bestMatch.park.other_facilities,
         },
       };
-    } else {
-      console.log(`❌ 좌표 기반 매칭 실패 (반경 ${radius}m 내 공원 없음)`);
     }
   }
 
-  console.log("❌ 최종 매칭 실패: 주소/좌표 모두 매칭 실패");
   return null;
 }
 
