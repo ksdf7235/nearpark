@@ -23,3 +23,10 @@ export {
   convertUrbanParkRecord,
 } from "./urban-park";
 
+// 주소 정규화 유틸리티
+export {
+  normalizeAddress,
+  extractDongBunji,
+  compareAddresses,
+} from "./address";
+

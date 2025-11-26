@@ -68,10 +68,11 @@ async function insertBatch(
   try {
     // geom 컬럼은 별도 SQL 스크립트(db/update_geom.sql)로 업데이트합니다.
     // 여기서는 기본 데이터만 삽입합니다.
+    // UPSERT 방식 사용: 중복 시 업데이트, 없으면 삽입
 
     const { data, error } = await supabase
       .from("urban_parks")
-      .insert(rows)
+      .upsert(rows, { onConflict: "id" })
       .select();
 
     if (error) {
@@ -89,7 +90,7 @@ async function insertBatch(
       failed = rows.length;
     } else {
       success = data?.length || 0;
-      console.log(`✅ Batch ${batchIndex}: ${success}개 레코드 삽입 완료`);
+      console.log(`✅ Batch ${batchIndex}: ${success}개 레코드 처리 완료 (삽입/업데이트)`);
     }
   } catch (err) {
     console.error(`❌ Batch ${batchIndex} 예외 발생:`, err);
@@ -162,8 +163,18 @@ async function main() {
   const totalBatches = Math.ceil(dbRows.length / BATCH_SIZE);
 
   for (let i = 0; i < dbRows.length; i += BATCH_SIZE) {
-    const batch = dbRows.slice(i, i + BATCH_SIZE);
+    // 배치 내 중복 제거 (같은 ID가 여러 개 있으면 마지막 것만 사용)
+    const batchRaw = dbRows.slice(i, i + BATCH_SIZE);
+    const batchMap = new Map<string, UrbanParkDbRow>();
+    for (const row of batchRaw) {
+      batchMap.set(row.id, row);
+    }
+    const batch = Array.from(batchMap.values());
     const batchIndex = Math.floor(i / BATCH_SIZE) + 1;
+    
+    if (batch.length !== batchRaw.length) {
+      console.log(`⚠️  Batch ${batchIndex}: 중복 제거 (${batchRaw.length} → ${batch.length}개)`);
+    }
 
     const { success, failed } = await insertBatch(batch, batchIndex);
     totalSuccess += success;

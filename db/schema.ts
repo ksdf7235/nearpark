@@ -5,11 +5,80 @@
  * drizzle-kit generate 명령으로 SQL 마이그레이션 파일을 생성할 수 있습니다.
  */
 
-import { pgTable, text, doublePrecision, numeric, boolean, date, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, doublePrecision, numeric, boolean, date, timestamp, index, unique } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 /**
- * 전국 도시공원 공공데이터 테이블
+ * 통합 Place 테이블
+ * 
+ * 모든 소스(kakao, public_data, manual)를 하나의 테이블로 통합
+ * 주소 + 좌표 기반 중복 제거
+ */
+export const places = pgTable(
+  "places",
+  {
+    // 기본 정보
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    category: text("category").notNull(), // park, museum, library 등
+
+    // 소스 정보
+    source: text("source").notNull(), // "kakao" | "public_data" | "manual"
+    sourceId: text("source_id").notNull(), // 원본 소스의 ID
+
+    // 주소 정보 (중복 제거의 핵심)
+    roadAddress: text("road_address"),
+    jibunAddress: text("jibun_address"),
+    normalizedAddress: text("normalized_address"), // 정규화된 주소 (동/번지 추출)
+
+    // 위치 정보
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+
+    // 추가 정보
+    phone: text("phone"),
+    url: text("url"),
+    imageUrl: text("image_url"),
+    tags: text("tags").array(),
+
+    // 공원 전용 필드
+    parkType: text("park_type"),
+    area: text("area"),
+    hasPlayground: boolean("has_playground").default(false),
+    hasGym: boolean("has_gym").default(false),
+    hasToilet: boolean("has_toilet").default(false),
+    hasParking: boolean("has_parking").default(false),
+    hasBench: boolean("has_bench").default(false),
+    hasStageOrCulture: boolean("has_stage_or_culture").default(false),
+
+    // 메타데이터
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    // 주소 + 좌표 기반 unique 제약조건 (중복 제거)
+    // 같은 정규화된 주소와 좌표면 같은 장소로 간주
+    addressLocationUnique: unique("places_address_location_unique").on(
+      table.normalizedAddress,
+      table.lat,
+      table.lng
+    ),
+    
+    // 인덱스
+    categoryIdx: index("idx_places_category").on(table.category),
+    sourceIdx: index("idx_places_source").on(table.source),
+    sourceIdIdx: index("idx_places_source_id").on(table.source, table.sourceId),
+    latLngIdx: index("idx_places_lat_lng").on(table.lat, table.lng),
+    normalizedAddressIdx: index("idx_places_normalized_address").on(table.normalizedAddress),
+  })
+);
+
+// 타입 추출
+export type Place = typeof places.$inferSelect;
+export type NewPlace = typeof places.$inferInsert;
+
+/**
+ * 전국 도시공원 공공데이터 테이블 (레거시 - 마이그레이션 후 제거 예정)
  */
 export const urbanParks = pgTable(
   "urban_parks",

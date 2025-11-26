@@ -28,6 +28,13 @@ export interface Place {
   phone?: string; // 전화번호
   url?: string; // 카카오맵 URL
   imageUrl?: string; // 미리보기 이미지 URL
+  facilities?: {
+    sports: string | null; // 공원보유시설(운동시설)
+    play: string | null; // 공원보유시설(유희시설)
+    convenience: string | null; // 공원보유시설(편익시설)
+    culture: string | null; // 공원보유시설(교양시설)
+    other: string | null; // 공원보유시설(기타시설)
+  };
 }
 
 /**

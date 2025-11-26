@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import useKakaoLoader from "../../hooks/useKakaoLoader";
 import { searchPlaces } from "../../services/kakao";
+import { findMatchingUrbanPark } from "../../services/supabase";
 import { calculateDistance, formatDistance } from "../../lib/utils/distance";
 import type { Place, PlaceCategory } from "../../types/place";
 import { CATEGORY_LABELS } from "../../types/place";
@@ -93,7 +94,13 @@ export default function MapClient({
   };
 
   // 카카오맵 스타일의 상세 정보 HTML 생성 함수
-  const createPlaceDetailContent = (place: Place): string => {
+  const createPlaceDetailContent = (place: Place, facilities?: {
+    sports: string | null;
+    play: string | null;
+    convenience: string | null;
+    culture: string | null;
+    other: string | null;
+  }): string => {
     const distanceText = place.distance ? formatDistance(place.distance) : "";
 
     // 카카오맵 URL 생성
@@ -166,6 +173,63 @@ export default function MapClient({
             distanceText
               ? `<div style="font-size:12px;color:#3182f6;font-weight:500;margin-bottom:8px;">
                   거리: ${distanceText}
+                </div>`
+              : ""
+          }
+          
+          <!-- 공원보유시설 -->
+          ${
+            facilities && (facilities.sports || facilities.play || facilities.convenience || facilities.culture || facilities.other)
+              ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f0;">
+                  <div style="font-size:13px;font-weight:600;color:#333;margin-bottom:10px;display:flex;align-items:center;gap:4px;">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;">
+                      <path d="M8 2L2 6L8 10L14 6L8 2Z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                      <path d="M2 10L8 14L14 10" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                    </svg>
+                    공원보유시설
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px;">
+                    ${
+                      facilities.sports
+                        ? `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f9fa;border-radius:6px;">
+                            <div style="flex-shrink:0;width:60px;font-size:11px;font-weight:600;color:#3182f6;text-align:right;padding-top:2px;">운동시설</div>
+                            <div style="flex:1;font-size:12px;color:#333;line-height:1.5;">${(facilities.sports || "").replace(/\+/g, ", ")}</div>
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      facilities.play
+                        ? `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f9fa;border-radius:6px;">
+                            <div style="flex-shrink:0;width:60px;font-size:11px;font-weight:600;color:#10b981;text-align:right;padding-top:2px;">유희시설</div>
+                            <div style="flex:1;font-size:12px;color:#333;line-height:1.5;">${(facilities.play || "").replace(/\+/g, ", ")}</div>
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      facilities.convenience
+                        ? `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f9fa;border-radius:6px;">
+                            <div style="flex-shrink:0;width:60px;font-size:11px;font-weight:600;color:#f59e0b;text-align:right;padding-top:2px;">편익시설</div>
+                            <div style="flex:1;font-size:12px;color:#333;line-height:1.5;">${(facilities.convenience || "").replace(/\+/g, ", ")}</div>
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      facilities.culture
+                        ? `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f9fa;border-radius:6px;">
+                            <div style="flex-shrink:0;width:60px;font-size:11px;font-weight:600;color:#8b5cf6;text-align:right;padding-top:2px;">교양시설</div>
+                            <div style="flex:1;font-size:12px;color:#333;line-height:1.5;">${(facilities.culture || "").replace(/\+/g, ", ")}</div>
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      facilities.other
+                        ? `<div style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#f8f9fa;border-radius:6px;">
+                            <div style="flex-shrink:0;width:60px;font-size:11px;font-weight:600;color:#6b7280;text-align:right;padding-top:2px;">기타시설</div>
+                            <div style="flex:1;font-size:12px;color:#333;line-height:1.5;">${(facilities.other || "").replace(/\+/g, ", ")}</div>
+                          </div>`
+                        : ""
+                    }
+                  </div>
                 </div>`
               : ""
           }
@@ -573,7 +637,7 @@ export default function MapClient({
 
       // 클릭 시 상세 정보 표시
       const detailInfoWindow = new kakao.maps.InfoWindow({
-        content: createPlaceDetailContent(place),
+        content: createPlaceDetailContent(place, place.facilities),
         removable: true, // 닫기 버튼 표시
       });
 
@@ -678,27 +742,75 @@ export default function MapClient({
     // 장소 검색
     searchPlaces(category, userLocation.lat, userLocation.lng)
       .then(async (places) => {
-        // 검색 결과 캐시에 저장
-        placesCacheRef.current.set(cacheKey, places);
-        // 거리 계산 및 추가
-        const placesWithDistance: Place[] = places.map((place) => ({
-          ...place,
-          distance: calculateDistance(
-            userLocation.lat,
-            userLocation.lng,
-            place.lat,
-            place.lng
-          ),
-        }));
+        // 카테고리가 park인 경우, 각 place에 대해 urban_parks 매칭 시도
+        if (category === "park") {
+          const placesWithMatching = await Promise.all(
+            places.map(async (place) => {
+              // urban_parks에서 매칭되는 데이터 찾기
+              const match = await findMatchingUrbanPark(
+                place,
+                userLocation.lat,
+                userLocation.lng
+              );
 
-        // 부모 컴포넌트에 전달
-        onPlacesChange(placesWithDistance);
+              if (match) {
+                // 매칭된 경우, 시설 정보만 추가하고 거리는 카카오 장소 기준으로 유지
+                return {
+                  ...place,
+                  distance: calculateDistance(
+                    userLocation.lat,
+                    userLocation.lng,
+                    place.lat,
+                    place.lng
+                  ),
+                  facilities: match.facilities,
+                };
+              } else {
+                // 매칭되지 않은 경우, 기존 거리 사용
+                return {
+                  ...place,
+                  distance: calculateDistance(
+                    userLocation.lat,
+                    userLocation.lng,
+                    place.lat,
+                    place.lng
+                  ),
+                };
+              }
+            })
+          );
 
-        // 마커 생성 로직 재사용
-        createMarkersFromPlaces(placesWithDistance, userLocation, kakao);
+          // 검색 결과 캐시에 저장
+          placesCacheRef.current.set(cacheKey, placesWithMatching);
+
+          // 부모 컴포넌트에 전달
+          onPlacesChange(placesWithMatching);
+
+          // 마커 생성 로직 재사용
+          createMarkersFromPlaces(placesWithMatching, userLocation, kakao);
+        } else {
+          // park가 아닌 경우 기존 로직 사용
+          const placesWithDistance: Place[] = places.map((place) => ({
+            ...place,
+            distance: calculateDistance(
+              userLocation.lat,
+              userLocation.lng,
+              place.lat,
+              place.lng
+            ),
+          }));
+
+          // 검색 결과 캐시에 저장
+          placesCacheRef.current.set(cacheKey, placesWithDistance);
+
+          // 부모 컴포넌트에 전달
+          onPlacesChange(placesWithDistance);
+
+          // 마커 생성 로직 재사용
+          createMarkersFromPlaces(placesWithDistance, userLocation, kakao);
+        }
       })
       .catch((err) => {
-        console.error("장소 검색 실패:", err);
         setError(`장소 검색 중 오류 발생: ${err.message}`);
       });
   }, [category, userLocation, onPlacesChange]);
